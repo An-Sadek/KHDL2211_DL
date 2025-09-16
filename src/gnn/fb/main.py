@@ -20,6 +20,7 @@ file_path = "data/facebook/facebook_combined.txt"
 assert os.path.exists(file_path), "Can't find path"
 G = load_edge_list(file_path)
 
+print("Is directed graph:", G.is_directed())
 print("Nodes:", G.number_of_nodes())
 print("Edges:", G.number_of_edges())
 

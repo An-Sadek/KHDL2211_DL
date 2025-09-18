@@ -1,1 +1,4 @@
 data/
+*.pt
+test.py
+read_tsv.py

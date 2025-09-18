@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 
+
 class GCNEncoder(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -12,6 +13,7 @@ class GCNEncoder(nn.Module):
     def forward(self, x, edge_index):
         x = F.relu(self.conv1(x, edge_index))
         return self.conv2(x, edge_index)
+
 
 class GAE(nn.Module):
     def __init__(self, encoder):
@@ -25,6 +27,6 @@ class GAE(nn.Module):
         # inner product decoder
         return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=1)
 
-    def decode_all(self, z, threshold=0.5):
-        prob_adj = torch.sigmoid(torch.matmul(z, z.t()))
-        return (prob_adj > threshold).nonzero(as_tuple=False).t()
+
+if __name__ == "__main__":
+    pass

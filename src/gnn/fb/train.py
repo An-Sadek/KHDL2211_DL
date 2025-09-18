@@ -1,14 +1,12 @@
 import os
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
 from torch_geometric.utils import from_networkx, train_test_split_edges
-from torch_geometric.nn import GCNConv
 
-# --------------------------
-# 1. Load graph
-# --------------------------
+from model import GCNEncoder, GAE
+
+# 1. LOAD GRAPH
 def load_edge_list(file_path, directed=False):
     if directed:
         G = nx.read_edgelist(file_path, nodetype=int, create_using=nx.DiGraph())
@@ -21,44 +19,13 @@ assert os.path.exists(file_path), "Can't find path"
 G = load_edge_list(file_path)
 data = from_networkx(G)
 
-# Add identity features (if none exist)
+# Add feature
 data.x = torch.eye(data.num_nodes)
 
 # Split edges for link prediction
 data = train_test_split_edges(data)
 
-# --------------------------
-# 2. Define GAE Model
-# --------------------------
-class GCNEncoder(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv1 = GCNConv(in_channels, 128)
-        self.conv2 = GCNConv(128, out_channels)
-
-    def forward(self, x, edge_index):
-        x = F.relu(self.conv1(x, edge_index))
-        return self.conv2(x, edge_index)
-
-class GAE(nn.Module):
-    def __init__(self, encoder):
-        super().__init__()
-        self.encoder = encoder
-
-    def forward(self, x, edge_index):
-        return self.encoder(x, edge_index)
-
-    def decode(self, z, edge_index):
-        # inner product decoder
-        return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=1)
-
-    def decode_all(self, z, threshold=0.5):
-        prob_adj = torch.sigmoid(torch.matmul(z, z.t()))
-        return (prob_adj > threshold).nonzero(as_tuple=False).t()
-
-# --------------------------
-# 3. Train
-# --------------------------
+# 2. TRAIN
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = GAE(GCNEncoder(data.x.size(1), 64)).to(device)
@@ -99,9 +66,8 @@ for epoch in range(1, 11):
     if epoch % 10 == 0:
         print(f"Epoch {epoch}, Loss {loss.item():.4f}")
 
-# --------------------------
-# 4. Inference
-# --------------------------
+# 3. SAVE MODEL
 model.eval()
 z = model(x, train_pos_edge_index)
 print("Node embeddings shape:", z.shape)
+torch.save(model.state_dict(), "model_dict.pt")

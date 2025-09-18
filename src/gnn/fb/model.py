@@ -24,7 +24,7 @@ class GAE(nn.Module):
         return self.encoder(x, edge_index)
 
     def decode(self, z, edge_index):
-        # inner product decoder
+        # Inner product decoder
         return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=1)
 
 

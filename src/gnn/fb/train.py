@@ -2,9 +2,14 @@ import os
 import torch
 import torch.nn.functional as F
 import networkx as nx
-from torch_geometric.utils import from_networkx, train_test_split_edges
+from torch_geometric.utils import (
+    from_networkx, 
+    train_test_split_edges, 
+    negative_sampling
+)
 
 from model import GCNEncoder, GAE
+
 
 # 1. LOAD GRAPH
 def load_edge_list(file_path, directed=False):
@@ -25,7 +30,7 @@ data.x = torch.eye(data.num_nodes)
 # Split edges for link prediction
 data = train_test_split_edges(data)
 
-# 2. TRAIN
+# 2. LOAD MODEL & PREPARE
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = GAE(GCNEncoder(data.x.size(1), 64)).to(device)
@@ -39,13 +44,13 @@ def get_link_labels(pos_edge_index, neg_edge_index):
     labels[:num_pos] = 1.
     return labels
 
+# 3. TRAIN
 for epoch in range(1, 11):
     model.train()
     optimizer.zero_grad()
     z = model(x, train_pos_edge_index)
 
     # Sample negative edges
-    from torch_geometric.utils import negative_sampling
     neg_edge_index = negative_sampling(
         edge_index=train_pos_edge_index,
         num_nodes=data.num_nodes,
@@ -66,7 +71,7 @@ for epoch in range(1, 11):
     if epoch % 10 == 0:
         print(f"Epoch {epoch}, Loss {loss.item():.4f}")
 
-# 3. SAVE MODEL
+# 4. SAVE MODEL
 model.eval()
 z = model(x, train_pos_edge_index)
 print("Node embeddings shape:", z.shape)

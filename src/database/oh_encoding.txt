@@ -1,0 +1,14 @@
+// Store id
+// Step 1: Get all distinct IDs
+MATCH (p:Person)
+WITH collect(DISTINCT p.id) AS ids
+// Step 2: For each person, create a one-hot encoded vector
+MATCH (p:Person)
+UNWIND ids AS id_val
+WITH p, ids, id_val,
+     CASE WHEN p.id = id_val THEN 1 ELSE 0 END AS one_hot_value
+// Step 3: Collect the one-hot vector and store it as a property
+WITH p, ids, collect(one_hot_value) AS one_hot_vector
+SET p.oh_encoding = one_hot_vector
+RETURN p.id, ids, p.oh_encoding
+ORDER BY p.id

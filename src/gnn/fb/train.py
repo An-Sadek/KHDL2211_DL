@@ -28,7 +28,11 @@ data = from_networkx(G)
 data.x = torch.eye(data.num_nodes)
 
 # Split edges for link prediction
-data = train_test_split_edges(data)
+data = train_test_split_edges(
+    data,
+    val_ratio=0.2,
+    test_ratio=0.1
+)
 
 # 2. LOAD MODEL & PREPARE
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -58,9 +62,9 @@ for epoch in range(1, 11):
     )
 
     # Get scores
-    pos_out = model.decode(z, train_pos_edge_index)
-    neg_out = model.decode(z, neg_edge_index)
-    out = torch.cat([pos_out, neg_out], dim=0)
+    pos_out = model.decode(z, train_pos_edge_index) # R ^ {E_pos}
+    neg_out = model.decode(z, neg_edge_index) # R ^ {E_neg}
+    out = torch.cat([pos_out, neg_out], dim=0) # R ^ {E_neg + E_pos}
 
     labels = get_link_labels(train_pos_edge_index, neg_edge_index).to(device)
 

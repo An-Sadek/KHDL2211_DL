@@ -1,9 +1,6 @@
 // Tạo pipeline
 CALL gds.beta.pipeline.linkPrediction.create("pipe");
 
-// Thêm Node
-CALL gds.beta.pipeline.linkPrediction.addNodeProperty('pipe', 'fastRP', {
-  mutateProperty: 'embedding',
-  embeddingDimension: 256,
-  randomSeed: 42
-})
+CALL gds.beta.pipeline.linkPrediction.addFeature('pipe', 'SAME_CATEGORY', {
+  nodeProperties: ['id']
+}) YIELD featureSteps

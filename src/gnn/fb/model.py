@@ -7,15 +7,21 @@ from torch_geometric.nn import GCNConv
 class GCNEncoder(nn.Module):
     def __init__(self, in_channels, out_channels, dropout=0.5):
         super().__init__()
-        self.conv1 = GCNConv(in_channels, 128)
-        self.conv2 = GCNConv(128, out_channels)
+        self.conv1 = GCNConv(in_channels, 2048)
+        self.conv2 = GCNConv(2048, 512)
+        self.conv3 = GCNConv(512, 128)
+        self.conv4 = GCNConv(128, out_channels)
         self.dropout = dropout
 
     def forward(self, x, edge_index):
         x = F.relu(self.conv1(x, edge_index))
         x = F.dropout(x, p=self.dropout, training=self.training)
-        return self.conv2(x, edge_index)
-
+        x = F.relu(self.conv2(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = F.relu(self.conv3(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.conv4(x, edge_index)
+        return x
 
 class GAE(nn.Module):
     def __init__(self, encoder):
@@ -23,11 +29,15 @@ class GAE(nn.Module):
         self.encoder = encoder
 
     def forward(self, x, edge_index):
-        return self.encoder(x, edge_index)
+        z = self.encoder(x, edge_index)
+        adj_pred = self.decode(z, edge_index)
+        return adj_pred
 
     def decode(self, z, edge_index):
-        # Inner product decoder
-        return (z[edge_index[0]] * z[edge_index[1]]).sum(dim=1)
+        # Ensure z is 2D (node embeddings)
+        assert z.dim() == 2, f"Expected 2D node embeddings, got shape {z.shape}"
+        product = z[edge_index[0]] * z[edge_index[1]]
+        return product.sum(dim=1)
 
 
 if __name__ == "__main__":

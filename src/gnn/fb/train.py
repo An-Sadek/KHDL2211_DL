@@ -17,7 +17,7 @@ def load_edge_list(file_path, directed=False):
         G = nx.read_edgelist(file_path, nodetype=int)
     return G
 
-file_path = "data/facebook/facebook_combined.txt"
+file_path = "data/facebook/data/facebook_combined.txt"
 assert os.path.exists(file_path), "Can't find path"
 G = load_edge_list(file_path)
 data = from_networkx(G)
@@ -42,47 +42,41 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 def get_link_labels(pos_edge_index, neg_edge_index):
     num_pos = pos_edge_index.size(1)
     num_neg = neg_edge_index.size(1)
-    labels = torch.zeros(num_pos + num_neg, dtype=torch.float)
+    labels = torch.zeros(num_pos + num_neg, dtype=torch.float, device=device)
     labels[:num_pos] = 1.
     return labels
 
-def evaluate_hits_mrr(model, data, pos_edge_index, neg_edge_index, k_values=[20, 50, 100]):
+def evaluate_mrr(model, data, pos_edge_index, neg_edge_index):
     model.eval()
     with torch.no_grad():
         z = model.encoder(data.x.to(device), data.train_pos_edge_index.to(device))
-        hits = {k: 0 for k in k_values}
-        mrr_sum = 0
         num_tests = pos_edge_index.size(1)
+        mrr_sum = 0
 
         for i in range(num_tests):
-            pos_edge = pos_edge_index[:, i:i+1]
-            neg_edges = neg_edge_index[:, i*neg_edge_index.size(1)//num_tests:(i+1)*neg_edge_index.size(1)//num_tests]
-            edge_indices = torch.cat([pos_edge, neg_edges], dim=1).to(device)
+            pos_edge = pos_edge_index[:, i:i+1].to(device)
+            neg_edges = neg_edge_index[:, i*neg_edge_index.size(1)//num_tests:(i+1)*neg_edge_index.size(1)//num_tests].to(device)
+            edge_indices = torch.cat([pos_edge, neg_edges], dim=1)
 
             scores = model.decode(z, edge_indices)
             _, indices = torch.sort(scores, descending=True)
             rank = (indices == 0).nonzero(as_tuple=True)[0].item() + 1
-
-            for k in k_values:
-                if rank <= k:
-                    hits[k] += 1
             mrr_sum += 1.0 / rank
 
-        hits_results = {k: hits[k] / num_tests for k in k_values}
         mrr = mrr_sum / num_tests
-
-    return hits_results, mrr
+    return mrr
 
 # -----------------------------
 # Training loop
 # -----------------------------
 training_logs = []
-num_epochs = 100
+num_epochs = 300
 
 for epoch in range(1, num_epochs + 1):
     model.train()
     optimizer.zero_grad()
 
+    # -------- Train step --------
     z = model.encoder(x, train_pos_edge_index)
     neg_edge_index = negative_sampling(
         edge_index=train_pos_edge_index,
@@ -94,54 +88,62 @@ for epoch in range(1, num_epochs + 1):
     neg_out = model.decode(z, neg_edge_index)
     out = torch.cat([pos_out, neg_out], dim=0)
 
-    labels = get_link_labels(train_pos_edge_index, neg_edge_index).to(device)
+    labels = get_link_labels(train_pos_edge_index, neg_edge_index)
     loss = F.binary_cross_entropy_with_logits(out, labels)
     loss.backward()
     optimizer.step()
 
-    # Evaluate on validation set every epoch
-    val_neg_edge_index = negative_sampling(
-        edge_index=data.val_pos_edge_index,
-        num_nodes=data.num_nodes,
-        num_neg_samples=data.val_pos_edge_index.size(1) * 10,
-    ).to(device)
-    hits_results, mrr = evaluate_hits_mrr(model, data, data.val_pos_edge_index, val_neg_edge_index)
+    # -------- Validation step --------
+    model.eval()
+    with torch.no_grad():
+        val_neg_edge_index = negative_sampling(
+            edge_index=data.val_pos_edge_index.to(device),
+            num_nodes=data.num_nodes,
+            num_neg_samples=data.val_pos_edge_index.size(1) * 10,
+        ).to(device)
 
-    # Log results
+        z = model.encoder(data.x.to(device), data.train_pos_edge_index.to(device))
+
+        pos_val_out = model.decode(z, data.val_pos_edge_index.to(device))
+        neg_val_out = model.decode(z, val_neg_edge_index)
+        out_val = torch.cat([pos_val_out, neg_val_out], dim=0)
+
+        labels_val = get_link_labels(data.val_pos_edge_index.to(device), val_neg_edge_index)
+        loss_val = F.binary_cross_entropy_with_logits(out_val, labels_val)
+
+        # Compute MRR for training set
+        mrr_train = evaluate_mrr(model, data, train_pos_edge_index, neg_edge_index)
+
+        # Compute MRR for validation set
+        mrr_val = evaluate_mrr(model, data, data.val_pos_edge_index.to(device), val_neg_edge_index)
+
+    # -------- Logging --------
     log_entry = {
         'epoch': epoch,
         'loss': loss.item(),
-        'hits@20': hits_results[20],
-        'hits@50': hits_results[50],
-        'hits@100': hits_results[100],
-        'mrr': mrr
+        'loss_val': loss_val.item(),
+        'mrr': mrr_train,
+        'mrr_val': mrr_val
     }
     training_logs.append(log_entry)
 
     print(
-        f"Epoch {epoch:02d}, Loss {loss.item():.4f}, "
-        f"Hits@20: {hits_results[20]:.4f}, "
-        f"Hits@50: {hits_results[50]:.4f}, "
-        f"Hits@100: {hits_results[100]:.4f}, "
-        f"MRR: {mrr:.4f}"
+        f"Epoch {epoch:02d}, "
+        f"Loss {loss.item():.4f}, Val Loss {loss_val.item():.4f}, "
+        f"MRR (train): {mrr_train:.4f}, MRR (val): {mrr_val:.4f}"
     )
 
 # -----------------------------
 # Final test evaluation
 # -----------------------------
 test_neg_edge_index = negative_sampling(
-    edge_index=data.test_pos_edge_index,
+    edge_index=data.test_pos_edge_index.to(device),
     num_nodes=data.num_nodes,
     num_neg_samples=data.test_pos_edge_index.size(1) * 10,
 ).to(device)
 
-hits_results, mrr = evaluate_hits_mrr(model, data, data.test_pos_edge_index, test_neg_edge_index)
-print(
-    f"Final Test - Hits@20: {hits_results[20]:.4f}, "
-    f"Hits@50: {hits_results[50]:.4f}, "
-    f"Hits@100: {hits_results[100]:.4f}, "
-    f"MRR: {mrr:.4f}"
-)
+mrr_test = evaluate_mrr(model, data, data.test_pos_edge_index.to(device), test_neg_edge_index)
+print(f"Final Test - MRR: {mrr_test:.4f}")
 
 # -----------------------------
 # Save logs & model

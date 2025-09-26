@@ -7,6 +7,16 @@ from torch_geometric.utils import from_networkx, train_test_split_edges, negativ
 
 from model import GAE, GCNEncoder
 
+# HYPERPARAMETER
+## DATA
+VAL_RATIO = 0.2
+TEST_RATIO = 0.1
+
+## MODEL
+LEARNING_RATE = 0.01
+DROPOUT = 0.5
+EPOCH = 300
+
 # -----------------------------
 # Load graph
 # -----------------------------
@@ -17,7 +27,7 @@ def load_edge_list(file_path, directed=False):
         G = nx.read_edgelist(file_path, nodetype=int)
     return G
 
-file_path = "data/facebook/data/facebook_combined.txt"
+file_path = "facebook_combined.txt"
 assert os.path.exists(file_path), "Can't find path"
 G = load_edge_list(file_path)
 data = from_networkx(G)
@@ -26,16 +36,20 @@ data = from_networkx(G)
 data.x = torch.eye(data.num_nodes)
 
 # Train/val/test split
-data = train_test_split_edges(data, val_ratio=0.2, test_ratio=0.1)
+data = train_test_split_edges(data, val_ratio=VAL_RATIO, test_ratio=TEST_RATIO)
 
 # -----------------------------
 # Model setup
 # -----------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = GAE(GCNEncoder(data.x.size(1), dropout=0.25)).to(device)
+model = GAE(GCNEncoder(data.x.size(1), dropout=DROPOUT)).to(device)
 x, train_pos_edge_index = data.x.to(device), data.train_pos_edge_index.to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
+print("CUDA available:", torch.cuda.is_available())
+print("Device being used:", device)
+if torch.cuda.is_available():
+    print("GPU name:", torch.cuda.get_device_name(0))
 # -----------------------------
 # Helper functions
 # -----------------------------
@@ -70,7 +84,7 @@ def evaluate_mrr(model, data, pos_edge_index, neg_edge_index):
 # Training loop
 # -----------------------------
 training_logs = []
-num_epochs = 300
+num_epochs = EPOCH
 
 for epoch in range(1, num_epochs + 1):
     model.train()

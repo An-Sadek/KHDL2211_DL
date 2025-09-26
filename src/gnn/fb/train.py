@@ -44,7 +44,7 @@ data = train_test_split_edges(data, val_ratio=VAL_RATIO, test_ratio=TEST_RATIO)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = GAE(GCNEncoder(data.x.size(1), dropout=DROPOUT)).to(device)
 x, train_pos_edge_index = data.x.to(device), data.train_pos_edge_index.to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
 
 print("CUDA available:", torch.cuda.is_available())
 print("Device being used:", device)
@@ -84,7 +84,7 @@ def evaluate_mrr(model, data, pos_edge_index, neg_edge_index):
 # Training loop
 # -----------------------------
 training_logs = []
-num_epochs = EPOCH
+num_epochs = 300
 
 for epoch in range(1, num_epochs + 1):
     model.train()

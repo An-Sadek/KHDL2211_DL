@@ -38,7 +38,6 @@ class GAE(nn.Module):
 
     def decode(self, z, edge_index):
         # Ensure z is 2D (node embeddings)
-        assert z.dim() == 2, f"Expected 2D node embeddings, got shape {z.shape}"
         product = z[edge_index[0]] * z[edge_index[1]]
         return product.sum(dim=1)
 

@@ -36,6 +36,7 @@ data = from_networkx(G)
 data.x = torch.eye(data.num_nodes)
 
 # Train/val/test split
+torch.manual_seed(42)
 data = train_test_split_edges(data, val_ratio=VAL_RATIO, test_ratio=TEST_RATIO)
 
 # -----------------------------

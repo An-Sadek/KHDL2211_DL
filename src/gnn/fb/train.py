@@ -44,12 +44,13 @@ data = train_test_split_edges(data, val_ratio=VAL_RATIO, test_ratio=TEST_RATIO)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = GAE(GCNEncoder(data.x.size(1), dropout=DROPOUT)).to(device)
 x, train_pos_edge_index = data.x.to(device), data.train_pos_edge_index.to(device)
-optimizer = torch.optim.SGD(model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
 
 print("CUDA available:", torch.cuda.is_available())
 print("Device being used:", device)
 if torch.cuda.is_available():
     print("GPU name:", torch.cuda.get_device_name(0))
+
 # -----------------------------
 # Helper functions
 # -----------------------------
@@ -59,26 +60,6 @@ def get_link_labels(pos_edge_index, neg_edge_index):
     labels = torch.zeros(num_pos + num_neg, dtype=torch.float, device=device)
     labels[:num_pos] = 1.
     return labels
-
-def evaluate_mrr(model, data, pos_edge_index, neg_edge_index):
-    model.eval()
-    with torch.no_grad():
-        z = model.encoder(data.x.to(device), data.train_pos_edge_index.to(device))
-        num_tests = pos_edge_index.size(1)
-        mrr_sum = 0
-
-        for i in range(num_tests):
-            pos_edge = pos_edge_index[:, i:i+1].to(device)
-            neg_edges = neg_edge_index[:, i*neg_edge_index.size(1)//num_tests:(i+1)*neg_edge_index.size(1)//num_tests].to(device)
-            edge_indices = torch.cat([pos_edge, neg_edges], dim=1)
-
-            scores = model.decode(z, edge_indices)
-            _, indices = torch.sort(scores, descending=True)
-            rank = (indices == 0).nonzero(as_tuple=True)[0].item() + 1
-            mrr_sum += 1.0 / rank
-
-        mrr = mrr_sum / num_tests
-    return mrr
 
 # -----------------------------
 # Training loop
@@ -116,8 +97,6 @@ for epoch in range(1, num_epochs + 1):
             num_neg_samples=data.val_pos_edge_index.size(1) * 10,
         ).to(device)
 
-        z = model.encoder(data.x.to(device), data.train_pos_edge_index.to(device))
-
         pos_val_out = model.decode(z, data.val_pos_edge_index.to(device))
         neg_val_out = model.decode(z, val_neg_edge_index)
         out_val = torch.cat([pos_val_out, neg_val_out], dim=0)
@@ -126,11 +105,31 @@ for epoch in range(1, num_epochs + 1):
         loss_val = F.binary_cross_entropy_with_logits(out_val, labels_val)
 
         # Compute MRR for training set
-        mrr_train = evaluate_mrr(model, data, train_pos_edge_index, neg_edge_index)
+        num_tests = train_pos_edge_index.size(1)
+        mrr_sum_train = 0
+        for i in range(num_tests):
+            pos_edge = train_pos_edge_index[:, i:i+1].to(device)
+            neg_edges = neg_edge_index[:, i*neg_edge_index.size(1)//num_tests:(i+1)*neg_edge_index.size(1)//num_tests].to(device)
+            edge_indices = torch.cat([pos_edge, neg_edges], dim=1)
+            scores = model.decode(z, edge_indices)
+            _, indices = torch.sort(scores, descending=True)
+            rank = (indices == 0).nonzero(as_tuple=True)[0].item() + 1
+            mrr_sum_train += 1.0 / rank
+        mrr_train = mrr_sum_train / num_tests
 
         # Compute MRR for validation set
-        mrr_val = evaluate_mrr(model, data, data.val_pos_edge_index.to(device), val_neg_edge_index)
-
+        num_tests_val = data.val_pos_edge_index.size(1)
+        mrr_sum_val = 0
+        for i in range(num_tests_val):
+            pos_edge = data.val_pos_edge_index[:, i:i+1].to(device)
+            neg_edges = val_neg_edge_index[:, i*val_neg_edge_index.size(1)//num_tests_val:(i+1)*val_neg_edge_index.size(1)//num_tests_val].to(device)
+            edge_indices = torch.cat([pos_edge, neg_edges], dim=1)
+            scores = model.decode(z, edge_indices)
+            _, indices = torch.sort(scores, descending=True)
+            rank = (indices == 0).nonzero(as_tuple=True)[0].item() + 1
+            mrr_sum_val += 1.0 / rank
+        mrr_val = mrr_sum_val / num_tests_val
+        
     # -------- Logging --------
     log_entry = {
         'epoch': epoch,
@@ -156,7 +155,20 @@ test_neg_edge_index = negative_sampling(
     num_neg_samples=data.test_pos_edge_index.size(1) * 10,
 ).to(device)
 
-mrr_test = evaluate_mrr(model, data, data.test_pos_edge_index.to(device), test_neg_edge_index)
+model.eval()
+with torch.no_grad():
+    num_tests = data.test_pos_edge_index.size(1)
+    mrr_sum_test = 0
+    for i in range(num_tests):
+        pos_edge = data.test_pos_edge_index[:, i:i+1].to(device)
+        neg_edges = test_neg_edge_index[:, i*test_neg_edge_index.size(1)//num_tests:(i+1)*test_neg_edge_index.size(1)//num_tests].to(device)
+        edge_indices = torch.cat([pos_edge, neg_edges], dim=1)
+        scores = model.decode(z, edge_indices)
+        _, indices = torch.sort(scores, descending=True)
+        rank = (indices == 0).nonzero(as_tuple=True)[0].item() + 1
+        mrr_sum_test += 1.0 / rank
+    mrr_test = mrr_sum_test / num_tests
+
 print(f"Final Test - MRR: {mrr_test:.4f}")
 
 # -----------------------------
